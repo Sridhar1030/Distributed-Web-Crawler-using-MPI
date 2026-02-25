@@ -27,6 +27,10 @@ This project is a **distributed web crawler** that uses [MPI](https://www.mpi-fo
 
 ## Architecture
 
+<p align="center">
+  <img src="workflow.gif" alt="MPI Crawler: how master and workers talk" width="640">
+</p>
+
 ```
                     ┌─────────────────────────────────────────┐
                     │              MASTER (rank 0)             │

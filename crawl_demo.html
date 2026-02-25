@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MPI Crawler — Data flow</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #0d1117;
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      color: #e6edf3;
+    }
+    h1 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #8b949e;
+      margin-bottom: 24px;
+    }
+    .diagram {
+      position: relative;
+      width: 640px;
+      height: 420px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      overflow: visible;
+    }
+    .node {
+      position: absolute;
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 12px 20px;
+      min-width: 100px;
+    }
+    .node.master {
+      top: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: linear-gradient(135deg, #238636 0%, #2ea043 100%);
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(35, 134, 54, 0.4);
+    }
+    .node.master .label { font-size: 11px; opacity: 0.9; }
+    .node.master .name { font-weight: 700; font-size: 15px; }
+    .node.worker {
+      bottom: 40px;
+      background: #21262d;
+      border: 2px solid #30363d;
+      color: #e6edf3;
+    }
+    .node.worker .name { font-weight: 600; font-size: 13px; }
+    .node.worker .label { font-size: 10px; color: #8b949e; }
+    .node.worker-1 { left: 12%; transform: translateX(0); border-color: #a371f7; }
+    .node.worker-2 { left: 50%; transform: translateX(-50%); border-color: #d29922; }
+    .node.worker-3 { right: 12%; left: auto; transform: none; border-color: #3fb950; }
+    .connector {
+      position: absolute;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, #30363d, transparent);
+      transform-origin: left center;
+    }
+    .packet {
+      position: absolute;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+      opacity: 0;
+      z-index: 10;
+    }
+    .packet.request {
+      background: #a371f7;
+      color: #fff;
+    }
+    .packet.url {
+      background: #238636;
+      color: #fff;
+    }
+    .packet.links {
+      background: #d29922;
+      color: #0d1117;
+    }
+    .path {
+      fill: none;
+      stroke: #30363d;
+      stroke-width: 2;
+      stroke-dasharray: 6 6;
+    }
+    .path.active {
+      stroke: #58a6ff;
+      animation: dash 1.2s linear infinite;
+    }
+    @keyframes dash {
+      to { stroke-dashoffset: -24; }
+    }
+    .phase-label {
+      position: absolute;
+      bottom: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 11px;
+      color: #484f58;
+    }
+  </style>
+</head>
+<body>
+  <h1>MPI Crawler — How master and workers talk</h1>
+  <div class="diagram" id="diagram">
+    <div class="node master">
+      <span class="name">MASTER</span>
+      <span class="label">rank 0 · queue + visited</span>
+    </div>
+    <div class="node worker worker-1">
+      <span class="name">Worker 1</span>
+      <span class="label">rank 1</span>
+    </div>
+    <div class="node worker worker-2">
+      <span class="name">Worker 2</span>
+      <span class="label">rank 2</span>
+    </div>
+    <div class="node worker worker-3">
+      <span class="name">Worker 3</span>
+      <span class="label">rank 3</span>
+    </div>
+    <svg class="paths" width="640" height="420" viewBox="0 0 640 420" style="position:absolute;top:0;left:0;pointer-events:none">
+      <path id="w1-up" class="path" d="M 127 350 L 320 85"/>
+      <path id="w2-up" class="path" d="M 320 350 L 320 85"/>
+      <path id="w3-up" class="path" d="M 513 350 L 320 85"/>
+      <path id="m-w1" class="path" d="M 320 85 L 127 350"/>
+      <path id="m-w2" class="path" d="M 320 85 L 320 350"/>
+      <path id="m-w3" class="path" d="M 320 85 L 513 350"/>
+    </svg>
+    <div class="phase-label" id="phaseLabel">Worker → Master: "REQUEST"</div>
+  </div>
+
+  <script>
+    const diagram = document.getElementById("diagram");
+    const phaseLabel = document.getElementById("phaseLabel");
+    const centerX = 320;
+    const masterY = 85;
+    const workerY = 350;
+    const w1X = 127;
+    const w2X = 320;
+    const w3X = 513;
+
+    const phases = [
+      {
+        label: "Workers → Master: \"REQUEST\" (give me a URL)",
+        paths: ["w1-up", "w2-up", "w3-up"],
+        packets: [
+          { type: "request", text: "REQUEST", start: [w1X, workerY], end: [centerX, masterY], delay: 0 },
+          { type: "request", text: "REQUEST", start: [w2X, workerY], end: [centerX, masterY], delay: 0.15 },
+          { type: "request", text: "REQUEST", start: [w3X, workerY], end: [centerX, masterY], delay: 0.3 }
+        ]
+      },
+      {
+        label: "Master → Workers: URL to crawl",
+        paths: ["m-w1", "m-w2", "m-w3"],
+        packets: [
+          { type: "url", text: "https://example.com", start: [centerX, masterY], end: [w1X, workerY], delay: 0 },
+          { type: "url", text: "https://...", start: [centerX, masterY], end: [w2X, workerY], delay: 0.2 },
+          { type: "url", text: "https://...", start: [centerX, masterY], end: [w3X, workerY], delay: 0.4 }
+        ]
+      },
+      {
+        label: "Workers → Master: url + title + links",
+        paths: ["w1-up", "w2-up", "w3-up"],
+        packets: [
+          { type: "links", text: "url, title, 5 links", start: [w1X, workerY], end: [centerX, masterY], delay: 0 },
+          { type: "links", text: "url, title, 5 links", start: [w2X, workerY], end: [centerX, masterY], delay: 0.25 },
+          { type: "links", text: "url, title, 5 links", start: [w3X, workerY], end: [centerX, masterY], delay: 0.5 }
+        ]
+      }
+    ];
+
+    let phaseIndex = 0;
+
+    function createPacket(type, text, start, end, delay) {
+      const p = document.createElement("div");
+      p.className = `packet ${type}`;
+      p.textContent = text;
+      diagram.appendChild(p);
+      const startX = start[0];
+      const startY = start[1];
+      const endX = end[0];
+      const endY = end[1];
+      const duration = 1400;
+      const startTime = Date.now() + delay * 1000;
+
+      function animate() {
+        const now = Date.now();
+        if (now < startTime) {
+          requestAnimationFrame(animate);
+          return;
+        }
+        const t = Math.min(1, (now - startTime) / duration);
+        const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        const x = startX + (endX - startX) * ease;
+        const y = startY + (endY - startY) * ease;
+        p.style.left = x + "px";
+        p.style.top = y + "px";
+        p.style.transform = "translate(-50%, -50%)";
+        p.style.opacity = t < 0.05 ? 0 : 1;
+        if (t < 1) requestAnimationFrame(animate);
+        else setTimeout(() => p.remove(), 200);
+      }
+      p.style.left = startX + "px";
+      p.style.top = startY + "px";
+      p.style.transform = "translate(-50%, -50%)";
+      requestAnimationFrame(animate);
+    }
+
+    function runPhase() {
+      const phase = phases[phaseIndex];
+      phaseLabel.textContent = phase.label;
+
+      document.querySelectorAll(".path").forEach(p => {
+        p.classList.remove("active");
+        p.style.stroke = "#30363d";
+      });
+      phase.paths.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.classList.add("active");
+          el.style.stroke = "#58a6ff";
+        }
+      });
+
+      phase.packets.forEach(({ type, text, start, end, delay }) => {
+        setTimeout(() => createPacket(type, text, start, end, 0), delay * 1000);
+      });
+
+      phaseIndex = (phaseIndex + 1) % phases.length;
+      setTimeout(runPhase, 3200);
+    }
+
+    setTimeout(runPhase, 400);
+  </script>
+</body>
+</html>
